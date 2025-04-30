@@ -27,6 +27,7 @@ class Batcher(umbridge.Model):
             self.output = None
             self.thread = None
             self.start_time = time.time()
+            self.last_input_time = time.time()
             self.config = config
             self.order = self.config["order"]
             self.simulator = simulator
@@ -39,7 +40,8 @@ class Batcher(umbridge.Model):
             return len(self.parameters) == self._batchsize 
 
         def _start_timeout_exceeded(self):
-            return time.time() - self.start_time > args.timeout
+            #return time.time() - self.start_time > args.timeout
+            return time.time() - self.last_input_time > args.timeout
 
         def is_computing(self):
             return self.thread is not None
@@ -56,7 +58,7 @@ class Batcher(umbridge.Model):
                         print(f"The actual size of the parameters is {len(self.parameters)}")
                         while len(self.parameters) < self._batchsize:
                             #self.parameters.append([0] * self.simulator.get_input_sizes()[0])
-                            self.parameters.append([0])
+                            self.parameters.append([0.01])
                         self._compute()
                 
                 time.sleep(.1)
@@ -72,6 +74,7 @@ class Batcher(umbridge.Model):
 
             own_entry_index = len(self.parameters)
             self.parameters.append(parameters[0])
+            self.last_input_time = time.time()
 
             print(f"Batched {own_entry_index+1} / {self._batchsize}")
             print(f"Parameters: {parameters}")
