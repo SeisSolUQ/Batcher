@@ -76,7 +76,7 @@ class Batcher(umbridge.Model):
             self.parameters.append(parameters[0])
             self.last_input_time = time.time()
 
-            print(f"Batched {own_entry_index+1} / {self._batchsize}")
+            print(f"Batched {own_entry_index+1} / {self._batchsize} at {time.ctime()}")
             print(f"Parameters: {parameters}")
 
             self._wait_for_batch_and_submit()
