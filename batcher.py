@@ -108,10 +108,12 @@ class Batcher(umbridge.Model):
         self.lock = threading.Lock()
 
     def get_input_sizes(self, config):
-        return [self.simulator.get_input_sizes(config)[0]] #Isn't this just the batch size? -> No
+        #return [self.simulator.get_input_sizes(config)[0]] #Isn't this just the batch size? -> No
+        return 1
 
     def get_output_sizes(self, config):
-        return [self.simulator.get_output_sizes(config)[0]] #Isn't this just the batch size? -> No
+        #return [self.simulator.get_output_sizes(config)[0]] #Isn't this just the batch size? -> No
+        return 1
 
     def __call__(self, parameters, config):
         assert len(parameters) == 1, "Batching requires models to have a single input vector!"
