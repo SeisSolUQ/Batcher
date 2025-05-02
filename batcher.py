@@ -58,7 +58,8 @@ class Batcher(umbridge.Model):
                         print(f"The actual size of the parameters is {len(self.parameters)}")
                         while len(self.parameters) < self._batchsize:
                             #self.parameters.append([0] * self.simulator.get_input_sizes()[0])
-                            self.parameters.append([0.01])
+                            #self.parameters.append([0.01])
+                            self.parameters.append([self.parameters[0]])
                         self._compute()
                 
                 time.sleep(.1)
