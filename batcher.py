@@ -10,7 +10,9 @@ parser.add_argument('url', metavar='url', type=str,
 parser.add_argument('model', metavar='model', type=str,
                     help='the model name to connect to, for example "forward"')
 parser.add_argument('batchsize', metavar='batchsize', type=int,
-                    help='the batch size to use, for example 4')
+                    help='the batch size to use for coarser model, for example 8')
+parser.add_argument('batchsize2', metavar='batchsize2', type=int,
+                    help='the batch size to use for finer model, for example 2')
 parser.add_argument('port', metavar='port', type=int,
                     help='the port to listen on, for example 4242')
 parser.add_argument('timeout', metavar='timeout', type=int,
@@ -33,14 +35,13 @@ class Batcher(umbridge.Model):
             self.simulator = simulator
             self.batchLock = threading.Lock()
             print(f"batch instant created with config: {self.order} at {time.ctime()}")
-            self._batchsize = 1 if self.order=="4" else args.batchsize
+            self._batchsize = args.batchsize2 if self.order=="4" else args.batchsize
             print(f"Batch Size for this batch is: {self._batchsize}")
 
         def is_full(self):
             return len(self.parameters) == self._batchsize 
 
         def _start_timeout_exceeded(self):
-            #return time.time() - self.start_time > args.timeout
             return time.time() - self.last_input_time > args.timeout
 
         def is_computing(self):
@@ -48,7 +49,6 @@ class Batcher(umbridge.Model):
 
         def _wait_for_batch_and_submit(self):
             while(True):
-            #while (not self.is_computing()):
                 with self.batchLock:
                     if(self.is_computing()):
                         break
@@ -57,9 +57,7 @@ class Batcher(umbridge.Model):
                     # Pad parameters in case the batch is not full
                         print(f"The actual size of the parameters is {len(self.parameters)}")
                         while len(self.parameters) < self._batchsize:
-                            #self.parameters.append([0] * self.simulator.get_input_sizes()[0])
-                            #self.parameters.append([0.01])
-                            self.parameters.append([self.parameters[0]])
+                            self.parameters.append([0.01])
                         self._compute()
                 
                 time.sleep(.1)
