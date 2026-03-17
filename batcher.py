@@ -40,8 +40,15 @@ class Batcher(umbridge.Model):
                     if (self.is_full() or remaining_time <= 0):
                         # Pad parameters in case the batch is not full
                         print(f"The actual size of the parameters is {len(self.parameters)}")
+                        # Use the last parameter for padding to maintain valid input shapes/values
+                        if len(self.parameters) > 0:
+                            padding_vector = self.parameters[-1]
+                        else:
+                             # Fallback if batch is empty (shouldn't happen in current logic but safe)
+                            padding_vector = [0.01]
+
                         while len(self.parameters) < self._batchsize:
-                            self.parameters.append([0.01])
+                            self.parameters.append(padding_vector)
                         self._compute()
                         self.batchLock.notify_all()
                         break
