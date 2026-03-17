@@ -48,7 +48,7 @@ class Batcher(umbridge.Model):
                             raise RuntimeError("Cannot pad an empty batch - no parameters available for shape inference")
 
                         while len(self.parameters) < self._batchsize:
-                            self.parameters.append(padding_vector)
+                            self.parameters.append(list(padding_vector))
                         self._compute()
                         self.batchLock.notify_all()
                         break
@@ -113,10 +113,10 @@ class Batcher(umbridge.Model):
         self.lock = threading.Lock()
 
     def get_input_sizes(self, config):
-        return [self.simulator.get_input_sizes(config)[0]] #Isn't this just the batch size? -> No
+        return [self.simulator.get_input_sizes(config)[0]]
 
     def get_output_sizes(self, config):
-        return [self.simulator.get_output_sizes(config)[0]] #Isn't this just the batch size? -> No
+        return [self.simulator.get_output_sizes(config)[0]]
 
     def __call__(self, parameters, config):
         assert len(parameters) == 1, "Batching requires models to have a single input vector!"

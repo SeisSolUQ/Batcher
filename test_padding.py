@@ -7,8 +7,8 @@ class TestPadding(unittest.TestCase):
     def test_padding_shape_mismatch(self):
         # Scenario: Input vector has size 2. Batch size is 2.
         # We submit 1 item. Timeout occurs.
-        # The batcher should pad with the last item ([0.1, 0.2]) instead of [0.01].
-        # The simulator should receive a batch of size 2 with identical vectors.
+        # Verify that the batcher pads with the last submitted item ([0.1, 0.2])
+        # to ensure the simulator receives a valid, consistent batch.
         
         args = argparse.Namespace()
         args.url = "http://localhost:4242"
@@ -28,7 +28,7 @@ class TestPadding(unittest.TestCase):
             for i, p in enumerate(params):
                 if len(p) != first_len:
                     raise ValueError(f"Shape mismatch at index {i}: expected {first_len}, got {len(p)}")
-            return [[0.5]] * len(params)
+            return [0.5] * len(params)
             
         mock_sim.side_effect = check_input_shape
         
