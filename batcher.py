@@ -44,8 +44,12 @@ class Batcher(umbridge.Model):
                         if len(self.parameters) > 0:
                             padding_vector = self.parameters[-1]
                         else:
-                             # Fallback if batch is empty (shouldn't happen in current logic but safe)
-                            padding_vector = [0.01]
+                             # Empty batch at submission time indicates a logic error; fail fast.
+                            raise RuntimeError(
+                                "Attempted to submit an empty batch. "
+                                "This should not happen; ensure that at least one sample is added "
+                                "before waiting for results."
+                            )
 
                         while len(self.parameters) < self._batchsize:
                             self.parameters.append(padding_vector)
