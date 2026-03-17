@@ -1,6 +1,5 @@
 import threading
 import unittest
-import time
 from unittest.mock import MagicMock
 import argparse
 import batcher
