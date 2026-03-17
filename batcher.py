@@ -27,6 +27,7 @@ class Batcher(umbridge.Model):
         def __init__(self, config, simulator):
             self.parameters = []
             self.output = None
+            self.error = None
             self.thread = None
             self.start_time = time.time()
             self.last_input_time = time.time()
@@ -65,7 +66,7 @@ class Batcher(umbridge.Model):
             if self.thread.is_alive():
                 self.thread.join()
 
-            while (self.output is None): # Ugly but just to be safe...
+            while (self.output is None and self.error is None): # Ugly but just to be safe...
                 time.sleep(.1)
 
         def evaluate_batched(self, parameters):
@@ -79,6 +80,10 @@ class Batcher(umbridge.Model):
             print(f"Parameters: {parameters}")
 
             self._wait_for_batch_and_submit()
+            
+            if self.error is not None:
+                raise Exception("Batch processing failed") from self.error
+                
             return [self.output[own_entry_index]] # if parameters = [1,2] for example, own_entry_index = 1 because the appending happens after getting own_entry_index.
 
         def _compute(self):
@@ -89,13 +94,18 @@ class Batcher(umbridge.Model):
 
         def _compute_thread(self):
             # Try this up to 3 times to avoid cluster issues
+            last_exception = None
             for i in range(3):
                 try:
                     self.output = self.simulator(self.parameters, self.config)
                     break
                 except Exception as e:
+                    last_exception = e
                     print(f"Failed to submit batch. Retrying {i+1} up to 3 times. Error message: {e}")
                     time.sleep(10)
+
+            if self.output is None:
+                self.error = last_exception if last_exception else Exception("Batch processing failed with unknown error")
 
             print(f"Output: {self.output}")
 
