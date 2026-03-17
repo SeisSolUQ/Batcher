@@ -79,6 +79,8 @@ class Batcher(umbridge.Model):
             print(f"Parameters: {parameters}")
 
             self._wait_for_batch_and_submit()
+            if isinstance(self.output, Exception):
+                raise self.output
             return [self.output[own_entry_index]] # if parameters = [1,2] for example, own_entry_index = 1 because the appending happens after getting own_entry_index.
 
         def _compute(self):
@@ -96,6 +98,9 @@ class Batcher(umbridge.Model):
                 except Exception as e:
                     print(f"Failed to submit batch. Retrying {i+1} up to 3 times. Error message: {e}")
                     time.sleep(10)
+
+            if self.output is None:
+                self.output = Exception("Batch processing failed after 3 retries")
 
             print(f"Output: {self.output}")
 
