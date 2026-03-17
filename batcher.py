@@ -2,6 +2,7 @@ import argparse
 import umbridge
 import threading
 import time
+import copy
 
 # Define a model that batches parameters per config before sending them to the simulator
 class Batcher(umbridge.Model):
@@ -48,7 +49,7 @@ class Batcher(umbridge.Model):
                             raise RuntimeError("Cannot pad an empty batch - no parameters available for shape inference")
 
                         while len(self.parameters) < self._batchsize:
-                            self.parameters.append(list(padding_vector))
+                            self.parameters.append(copy.deepcopy(padding_vector))
                         self._compute()
                         self.batchLock.notify_all()
                         break
