@@ -3,28 +3,11 @@ import umbridge
 import threading
 import time
 
-# Read CLI arguments
-parser = argparse.ArgumentParser(description='Minimal HTTP model demo.')
-parser.add_argument('url', metavar='url', type=str,
-                    help='the URL at which the model is running, for example http://localhost:4242')
-parser.add_argument('model', metavar='model', type=str,
-                    help='the model name to connect to, for example "forward"')
-parser.add_argument('batchsize', metavar='batchsize', type=int,
-                    help='the batch size to use for coarser model, for example 8')
-parser.add_argument('batchsize2', metavar='batchsize2', type=int,
-                    help='the batch size to use for finer model, for example 2')
-parser.add_argument('port', metavar='port', type=int,
-                    help='the port to listen on, for example 4242')
-parser.add_argument('timeout', metavar='timeout', type=int,
-                    help='the timeout to wait for a batch to fill in seconds, for example 5')
-args = parser.parse_args()
-print(f"Connecting to host URL {args.url}, model {args.model}")
-
 # Define a model that batches parameters per config before sending them to the simulator
 class Batcher(umbridge.Model):
 
     class Batch():
-        def __init__(self, config, simulator):
+        def __init__(self, config, simulator, cli_args):
             self.parameters = []
             self.output = None
             self.error = None
@@ -34,16 +17,17 @@ class Batcher(umbridge.Model):
             self.config = config
             self.order = self.config["order"]
             self.simulator = simulator
+            self.cli_args = cli_args
             self.batchLock = threading.Lock()
-            print(f"batch instant created with config: {self.order} at {time.ctime()}")
-            self._batchsize = args.batchsize2 if self.order=="4" else args.batchsize
+            print(f"batch instance created with config: {self.order} at {time.ctime()}")
+            self._batchsize = self.cli_args.batchsize2 if self.order=="4" else self.cli_args.batchsize
             print(f"Batch Size for this batch is: {self._batchsize}")
 
         def is_full(self):
             return len(self.parameters) == self._batchsize 
 
         def _start_timeout_exceeded(self):
-            return time.time() - self.last_input_time > args.timeout
+            return time.time() - self.last_input_time > self.cli_args.timeout
 
         def is_computing(self):
             return self.thread is not None
@@ -69,22 +53,25 @@ class Batcher(umbridge.Model):
             while (self.output is None and self.error is None): # Ugly but just to be safe...
                 time.sleep(.1)
 
-        def evaluate_batched(self, parameters):
-            assert len(parameters) == 1, "Batching requires models to have a single input vector!"
+        def add_sample(self, parameter):
+            with self.batchLock:
+                if self.is_computing() or self.is_full():
+                    return -1
+                
+                own_entry_index = len(self.parameters)
+                self.parameters.append(parameter)
+                self.last_input_time = time.time()
+                return own_entry_index
 
-            own_entry_index = len(self.parameters)
-            self.parameters.append(parameters[0])
-            self.last_input_time = time.time()
-
+        def wait_for_result(self, own_entry_index):
             print(f"Batched {own_entry_index+1} / {self._batchsize} at {time.ctime()}")
-            print(f"Parameters: {parameters}")
-
+            
             self._wait_for_batch_and_submit()
             
             if self.error is not None:
                 raise Exception("Batch processing failed") from self.error
                 
-            return [self.output[own_entry_index]] # if parameters = [1,2] for example, own_entry_index = 1 because the appending happens after getting own_entry_index.
+            return [self.output[own_entry_index]]
 
         def _compute(self):
             assert self.thread is None, "Already computing!"
@@ -109,9 +96,10 @@ class Batcher(umbridge.Model):
 
             print(f"Output: {self.output}")
 
-    def __init__(self, simulator):
-        super().__init__(args.model)
+    def __init__(self, simulator, cli_args):
+        super().__init__(cli_args.model)
         self.simulator = simulator
+        self.cli_args = cli_args
         self.current_batches = {}
         self.lock = threading.Lock()
 
@@ -129,19 +117,52 @@ class Batcher(umbridge.Model):
         config_unique_identifier = config["order"] # Identify configurations to be batched separately
         print(f"Unique identifier: {config_unique_identifier}")
 
-        with self.lock:
-            current_batch = self.current_batches.get(config_unique_identifier, None)
-            
-            if (current_batch is None or current_batch.is_full()):
-                self.current_batches[config_unique_identifier] = self.Batch(config, self.simulator)
-                current_batch = self.current_batches[config_unique_identifier]
+        current_batch = None
+        own_entry_index = -1
 
-        return current_batch.evaluate_batched(parameters)
+        while True:
+            with self.lock:
+                current_batch = self.current_batches.get(config_unique_identifier, None)
+                
+                if (current_batch is None):
+                    self.current_batches[config_unique_identifier] = self.Batch(config, self.simulator, self.cli_args)
+                    current_batch = self.current_batches[config_unique_identifier]
+
+            own_entry_index = current_batch.add_sample(parameters[0])
+            
+            if own_entry_index != -1:
+                break
+
+            # If full, reset and retry
+            with self.lock:
+                # Check if it wasn't already replaced by another thread
+                if self.current_batches.get(config_unique_identifier) == current_batch:
+                    del self.current_batches[config_unique_identifier]
+
+        return current_batch.wait_for_result(own_entry_index)
 
     def supports_evaluate(self):
         return self.simulator.supports_evaluate()
 
-# Connect to a simulator that receives batches of parameters
-sim = umbridge.HTTPModel(args.url, args.model)
+if __name__ == "__main__":
+    # Read CLI arguments
+    parser = argparse.ArgumentParser(description='Minimal HTTP model demo.')
+    parser.add_argument('url', metavar='url', type=str,
+                        help='the URL at which the model is running, for example http://localhost:4242')
+    parser.add_argument('model', metavar='model', type=str,
+                        help='the model name to connect to, for example "forward"')
+    parser.add_argument('batchsize', metavar='batchsize', type=int,
+                        help='the batch size to use for coarser model, for example 8')
+    parser.add_argument('batchsize2', metavar='batchsize2', type=int,
+                        help='the batch size to use for finer model, for example 2')
+    parser.add_argument('port', metavar='port', type=int,
+                        help='the port to listen on, for example 4242')
+    parser.add_argument('timeout', metavar='timeout', type=float,
+                        help='the timeout to wait for a batch to fill in seconds, for example 5')
+    args = parser.parse_args()
+    print(f"Connecting to host URL {args.url}, model {args.model}")
 
-umbridge.serve_models([Batcher(sim)], args.port, max_workers=100, error_checks=False)
+    # Connect to a simulator that receives batches of parameters
+    sim = umbridge.HTTPModel(args.url, args.model)
+
+    umbridge.serve_models([Batcher(sim, args)], args.port, max_workers=100, error_checks=False)

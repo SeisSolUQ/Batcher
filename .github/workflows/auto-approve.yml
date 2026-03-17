@@ -1,0 +1,34 @@
+name: Auto Approve PRs
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  auto-approve:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+    - uses: actions/github-script@v6
+      with:
+        script: |
+          const { data: pullRequest } = await github.rest.pulls.get({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            pull_number: context.issue.number,
+          });
+          
+          // Only auto-approve PRs from the specific user
+          if (pullRequest.user.login === 'vikaskurapati') {
+            console.log('Approving PR for owner: vikaskurapati');
+            await github.rest.pulls.createReview({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              event: 'APPROVE',
+              body: 'Approved by automated workflow (Author: vikaskurapati).'
+            });
+          } else {
+            console.log('Skipping auto-approval for user: ' + pullRequest.user.login);
+          }
