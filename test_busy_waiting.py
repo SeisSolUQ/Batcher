@@ -3,7 +3,6 @@ from unittest.mock import MagicMock, patch
 import time
 import argparse
 import batcher
-import threading
 
 class TestBusyWaiting(unittest.TestCase):
     def test_busy_wait_loop(self):
