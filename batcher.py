@@ -82,7 +82,7 @@ class Batcher(umbridge.Model):
             self._wait_for_batch_and_submit()
             
             if self.error is not None:
-                raise self.error
+                raise Exception("Batch processing failed") from self.error
                 
             return [self.output[own_entry_index]] # if parameters = [1,2] for example, own_entry_index = 1 because the appending happens after getting own_entry_index.
 
