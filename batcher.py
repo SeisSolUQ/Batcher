@@ -157,7 +157,7 @@ if __name__ == "__main__":
                         help='the batch size to use for finer model, for example 2')
     parser.add_argument('port', metavar='port', type=int,
                         help='the port to listen on, for example 4242')
-    parser.add_argument('timeout', metavar='timeout', type=int,
+    parser.add_argument('timeout', metavar='timeout', type=float,
                         help='the timeout to wait for a batch to fill in seconds, for example 5')
     args = parser.parse_args()
     print(f"Connecting to host URL {args.url}, model {args.model}")
