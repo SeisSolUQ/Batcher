@@ -7,11 +7,10 @@ import time
 
 class TestPadding(unittest.TestCase):
     def test_padding_shape_mismatch(self):
-        # Scenario: Input vector has size 2. Batch size is 2.
-        # We submit 1 item. Timeout occurs.
-        # Code attempts to pad with [0.01] (size 1).
-        # This should result in a batch with mixed shapes [[0.1, 0.2], [0.01]]
-        # The simulator (mock) should receive this.
+        # Scenario: Input vector has size 2 and batch size is 2.
+        # We submit 1 item and let the timeout occur so the batch is completed via padding.
+        # The padding behavior is to reuse the last submitted parameter, producing [[0.1, 0.2], [0.1, 0.2]].
+        # The simulator (mock) should therefore receive a batch where all vectors have the same length.
         
         args = argparse.Namespace()
         args.url = "http://localhost:4242"
