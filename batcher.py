@@ -44,7 +44,7 @@ class Batcher(umbridge.Model):
                         if len(self.parameters) > 0:
                             padding_vector = self.parameters[-1]
                         else:
-                             # This should not happen since we always add a sample before waiting
+                            # This should not happen since we always add a sample before waiting
                             raise RuntimeError("Cannot pad an empty batch - no parameters available for shape inference")
 
                         while len(self.parameters) < self._batchsize:
