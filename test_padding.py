@@ -2,8 +2,7 @@ import unittest
 from unittest.mock import MagicMock
 import argparse
 import batcher
-import threading
-import time
+
 
 class TestPadding(unittest.TestCase):
     def test_padding_shape_mismatch(self):
