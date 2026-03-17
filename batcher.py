@@ -44,12 +44,8 @@ class Batcher(umbridge.Model):
                         if len(self.parameters) > 0:
                             padding_vector = self.parameters[-1]
                         else:
-                             # Empty batch at submission time indicates a logic error; fail fast.
-                            raise RuntimeError(
-                                "Attempted to submit an empty batch. "
-                                "This should not happen; ensure that at least one sample is added "
-                                "before waiting for results."
-                            )
+                             # This should not happen since we always add a sample before waiting
+                            raise RuntimeError("Cannot pad an empty batch - no parameters available for shape inference")
 
                         while len(self.parameters) < self._batchsize:
                             self.parameters.append(padding_vector)
@@ -117,12 +113,10 @@ class Batcher(umbridge.Model):
         self.lock = threading.Lock()
 
     def get_input_sizes(self, config):
-        #return [self.simulator.get_input_sizes(config)[0]] #Isn't this just the batch size? -> No
-        return 1
+        return [self.simulator.get_input_sizes(config)[0]] #Isn't this just the batch size? -> No
 
     def get_output_sizes(self, config):
-        #return [self.simulator.get_output_sizes(config)[0]] #Isn't this just the batch size? -> No
-        return 1
+        return [self.simulator.get_output_sizes(config)[0]] #Isn't this just the batch size? -> No
 
     def __call__(self, parameters, config):
         assert len(parameters) == 1, "Batching requires models to have a single input vector!"

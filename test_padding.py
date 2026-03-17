@@ -3,13 +3,12 @@ from unittest.mock import MagicMock
 import argparse
 import batcher
 
-
 class TestPadding(unittest.TestCase):
     def test_padding_shape_mismatch(self):
-        # Scenario: Input vector has size 2 and batch size is 2.
-        # We submit 1 item and let the timeout occur so the batch is completed via padding.
-        # The padding behavior is to reuse the last submitted parameter, producing [[0.1, 0.2], [0.1, 0.2]].
-        # The simulator (mock) should therefore receive a batch where all vectors have the same length.
+        # Scenario: Input vector has size 2. Batch size is 2.
+        # We submit 1 item. Timeout occurs.
+        # The batcher should pad with the last item ([0.1, 0.2]) instead of [0.01].
+        # The simulator should receive a batch of size 2 with identical vectors.
         
         args = argparse.Namespace()
         args.url = "http://localhost:4242"
@@ -39,6 +38,17 @@ class TestPadding(unittest.TestCase):
         try:
             # This should now succeed because padding will match the input vector [0.1, 0.2]
             b([[0.1, 0.2]], {"order": "3"})
+            
+            # Verify that the simulator was called with a batch of size 2
+            # And that both elements are [0.1, 0.2] (the padded one matches the original)
+            mock_sim.assert_called_once()
+            call_args = mock_sim.call_args
+            submitted_params = call_args[0][0] # First arg is parameters
+            
+            self.assertEqual(len(submitted_params), 2, "Batch size should be padded to 2")
+            self.assertEqual(submitted_params[0], [0.1, 0.2], "First item mismatch")
+            self.assertEqual(submitted_params[1], [0.1, 0.2], "Padded item mismatch (should match last input)")
+            
         except Exception as e:
             self.fail(f"Test failed with unexpected error: {e}")
 
