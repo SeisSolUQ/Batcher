@@ -19,7 +19,7 @@ class Batcher(umbridge.Model):
             self.simulator = simulator
             self.cli_args = cli_args
             self.batchLock = threading.Lock()
-            print(f"batch instant created with config: {self.order} at {time.ctime()}")
+            print(f"batch instance created with config: {self.order} at {time.ctime()}")
             self._batchsize = self.cli_args.batchsize2 if self.order=="4" else self.cli_args.batchsize
             print(f"Batch Size for this batch is: {self._batchsize}")
 
