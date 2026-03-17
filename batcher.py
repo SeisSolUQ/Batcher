@@ -18,7 +18,7 @@ class Batcher(umbridge.Model):
             self.order = self.config["order"]
             self.simulator = simulator
             self.cli_args = cli_args
-            self.batchLock = threading.Lock()
+            self.batchLock = threading.Condition()
             print(f"batch instance created with config: {self.order} at {time.ctime()}")
             self._batchsize = self.cli_args.batchsize2 if self.order=="4" else self.cli_args.batchsize
             print(f"Batch Size for this batch is: {self._batchsize}")
@@ -33,25 +33,26 @@ class Batcher(umbridge.Model):
             return self.thread is not None
 
         def _wait_for_batch_and_submit(self):
-            while(True):
-                with self.batchLock:
-                    if(self.is_computing()):
-                        break
-
-                    if (self.is_full() or self._start_timeout_exceeded()):
-                    # Pad parameters in case the batch is not full
+            with self.batchLock:
+                while not self.is_computing():
+                    remaining_time = self.cli_args.timeout - (time.time() - self.last_input_time)
+                    
+                    if (self.is_full() or remaining_time <= 0):
+                        # Pad parameters in case the batch is not full
                         print(f"The actual size of the parameters is {len(self.parameters)}")
                         while len(self.parameters) < self._batchsize:
                             self.parameters.append([0.01])
                         self._compute()
-                
-                time.sleep(.1)
+                        self.batchLock.notify_all()
+                        break
+                    
+                    self.batchLock.wait(max(0, remaining_time))
 
             if self.thread.is_alive():
                 self.thread.join()
 
-            while (self.output is None and self.error is None): # Ugly but just to be safe...
-                time.sleep(.1)
+            if self.output is None and self.error is None:
+                raise RuntimeError("Batch processing finished but no output or error set.")
 
         def add_sample(self, parameter):
             with self.batchLock:
@@ -61,6 +62,7 @@ class Batcher(umbridge.Model):
                 own_entry_index = len(self.parameters)
                 self.parameters.append(parameter)
                 self.last_input_time = time.time()
+                self.batchLock.notify_all()
                 return own_entry_index
 
         def wait_for_result(self, own_entry_index):
