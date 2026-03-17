@@ -137,7 +137,7 @@ class Batcher(umbridge.Model):
             with self.lock:
                 # Check if it wasn't already replaced by another thread
                 if self.current_batches.get(config_unique_identifier) == current_batch:
-                    self.current_batches[config_unique_identifier] = None
+                    del self.current_batches[config_unique_identifier]
 
         return current_batch.wait_for_result(own_entry_index)
 

@@ -38,18 +38,19 @@ class TestRaceCondition(unittest.TestCase):
         
         barrier = threading.Barrier(num_threads)
 
-        def submit_request():
+        def submit_request(thread_idx):
             try:
                 barrier.wait()
-                # order="3" uses batchsize1
-                res = b([[0.1]], {"order": "3"})
+                # Alternate between order="3" and order="4" to test both paths
+                order = "4" if thread_idx % 2 == 0 else "3"
+                res = b([[0.1]], {"order": order})
                 results.append(res)
             except Exception as e:
                 errors.append(e)
 
         threads = []
         for i in range(num_threads):
-            t = threading.Thread(target=submit_request)
+            t = threading.Thread(target=submit_request, args=(i,))
             threads.append(t)
             t.start()
             
