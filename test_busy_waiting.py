@@ -28,9 +28,9 @@ class TestBusyWaiting(unittest.TestCase):
         # We need to spy on time.sleep while letting it actually run
         # Use wraps=time.sleep so it calls the real function but tracks calls
         with patch('time.sleep', wraps=time.sleep) as mock_sleep:
-            # Submit one request. Since batchsize=2, it will wait for 0.5s timeout.
-            # During this wait, the current implementation sleeps every 0.1s.
-            # So expected calls ~ 0.5 / 0.1 = 5 calls.
+            # Submit one request. Since batchsize=2, it will wait for the 0.5s timeout
+            # before processing. With the current Condition.wait()-based implementation,
+            # we do not expect frequent polling via time.sleep (no busy-waiting).
             print("Submitting request...")
             b([[0.1]], {"order": "3"})
             
