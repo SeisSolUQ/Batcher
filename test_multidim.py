@@ -17,7 +17,7 @@ class TestMultiDim(unittest.TestCase):
         args.batchsize = 2
         args.batchsize2 = 2
         args.port = 4242
-        args.timeout = 5.0
+        args.timeout = 0.5
         
         mock_sim = MagicMock()
         mock_sim.supports_evaluate.return_value = True
@@ -40,8 +40,11 @@ class TestMultiDim(unittest.TestCase):
         results = []
         errors = []
         
+        barrier = threading.Barrier(2)
+
         def submit(vec):
             try:
+                barrier.wait()
                 res = b([vec], {"order": "3"})
                 results.append(res)
             except Exception as e:
