@@ -2,7 +2,7 @@
 
 Batcher is a high-performance proxy service designed to optimize model evaluation requests by aggregating them into batches before forwarding them to a backend model. It is built on top of the [UM-Bridge](https://um-bridge-benchmarks.github.io/) protocol.
 
-This service is particularly useful when the backend model (e.g., a simulation or a neural network) benefits significantly from batched inputs (vectorization) but the client sends requests sequentially or in small groups.
+This service is particularly useful when the backend model (e.g., a simulation) benefits significantly from batched inputs (vectorization) but the client sends requests sequentially or in small groups.
 
 ## Features
 
