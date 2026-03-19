@@ -36,6 +36,9 @@ class Batcher(umbridge.Model):
         def _wait_for_batch_and_submit(self):
             with self.batchLock:
                 while not self.is_computing():
+                    if self.error:
+                        raise Exception("Batch processing failed") from self.error
+
                     remaining_time = self.cli_args.timeout - (time.time() - self.last_input_time)
                     
                     if (self.is_full() or remaining_time <= 0):
@@ -46,7 +49,9 @@ class Batcher(umbridge.Model):
                             padding_vector = self.parameters[-1]
                         else:
                             # This should not happen since we always add a sample before waiting
-                            raise RuntimeError("Cannot pad an empty batch - no parameters available for shape inference")
+                            self.error = RuntimeError("Cannot pad an empty batch - no parameters available for shape inference")
+                            self.batchLock.notify_all()
+                            raise self.error
 
                         while len(self.parameters) < self._batchsize:
                             self.parameters.append(copy.deepcopy(padding_vector))
