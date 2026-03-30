@@ -5,15 +5,27 @@ import time
 import copy
 import logging
 import json
-from datetime import datetime
+import os
 
 # Setup simple logger
 def setup_logger(log_file='batcher.log'):
     logger = logging.getLogger('Batcher')
     logger.setLevel(logging.INFO)
-    logger.handlers.clear()  # Clear any existing handlers
     
-    fh = logging.FileHandler(log_file, mode='a')
+    # Only add a file handler if one for this log_file is not already present
+    log_file_path = os.path.abspath(log_file)
+    for handler in logger.handlers:
+        if isinstance(handler, logging.FileHandler):
+            # Compare absolute paths to see if this handler already targets our log file
+            if os.path.abspath(getattr(handler, 'baseFilename', '')) == log_file_path:
+                return logger
+    
+    try:
+        fh = logging.FileHandler(log_file, mode='a')
+    except OSError:
+        # Fall back to stderr if file logging is not possible (e.g., unwritable directory)
+        fh = logging.StreamHandler()
+    
     fh.setLevel(logging.INFO)
     
     formatter = logging.Formatter('%(asctime)s | %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
@@ -41,7 +53,8 @@ class Batcher(umbridge.Model):
             self.cli_args = cli_args
             self.batchLock = threading.Condition()
             self.batch_id = f"{self.order}_{int(time.time()*1000)}"
-            print(f"batch instance created with config: {self.order} at {time.ctime()}")
+            self.real_param_count = 0  # Track count before padding
+            print(f"batch instance created with id {self.batch_id} and config: {self.order} at {time.ctime()}")
             self._batchsize = self.cli_args.batchsize2 if self.order=="4" else self.cli_args.batchsize
             print(f"Batch Size for this batch is: {self._batchsize}")
 
@@ -60,10 +73,13 @@ class Batcher(umbridge.Model):
                     remaining_time = self.cli_args.timeout - (time.time() - self.last_input_time)
                     
                     if (self.is_full() or remaining_time <= 0):
+                        # Store real count before padding
+                        self.real_param_count = len(self.parameters)
+                        
                         # Pad parameters in case the batch is not full
-                        print(f"The actual size of the parameters is {len(self.parameters)}")
+                        print(f"The actual size of the parameters is {self.real_param_count}")
                         # Use the last parameter for padding to maintain valid input shapes/values
-                        if len(self.parameters) > 0:
+                        if self.real_param_count > 0:
                             padding_vector = self.parameters[-1]
                         else:
                             # This should not happen since we always add a sample before waiting
@@ -112,7 +128,7 @@ class Batcher(umbridge.Model):
 
         def _compute_thread(self):
             # Log batch submission
-            logger.info(f"Batch submitted: config={json.dumps(self.config)}, parameters={json.dumps(self.parameters)}, real_count={len(self.parameters)}")
+            logger.info(f"Batch submitted: config={json.dumps(self.config)}, parameters={json.dumps(self.parameters)}, real_count={self.real_param_count}")
             
             # Try this up to 3 times to avoid cluster issues
             last_exception = None

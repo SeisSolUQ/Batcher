@@ -25,8 +25,8 @@ When a batch is full or timeout is reached and sent to the simulator:
 ```
 Batch submitted: config={"order": "3"}, parameters=[[0.1, 0.2], [0.1, 0.2]], real_count=2
 ```
-- Shows all parameters in the batch
-- `real_count` shows how many are real submissions (rest are padding)
+- Shows all parameters in the batch (including any padding)
+- `real_count` shows how many are real submissions (excluding padding)
 
 ### 3. Output Received
 When the simulator returns output:
