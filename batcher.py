@@ -4,24 +4,27 @@ import threading
 import time
 import copy
 import logging
+from logging.handlers import RotatingFileHandler
 import json
 import os
 
 # Setup simple logger
-def setup_logger(log_file='batcher.log'):
+def setup_logger(log_file='batcher.log', max_bytes=10*1024*1024, backup_count=3):
     logger = logging.getLogger('Batcher')
     logger.setLevel(logging.INFO)
+    logger.propagate = False  # Avoid duplicate logs if root logger is configured
     
     # Only add a file handler if one for this log_file is not already present
     log_file_path = os.path.abspath(log_file)
     for handler in logger.handlers:
-        if isinstance(handler, logging.FileHandler):
+        if isinstance(handler, (logging.FileHandler, RotatingFileHandler)):
             # Compare absolute paths to see if this handler already targets our log file
             if os.path.abspath(getattr(handler, 'baseFilename', '')) == log_file_path:
                 return logger
     
     try:
-        fh = logging.FileHandler(log_file, mode='a')
+        # Use RotatingFileHandler to prevent unbounded log growth
+        fh = RotatingFileHandler(log_file, mode='a', maxBytes=max_bytes, backupCount=backup_count)
     except OSError:
         # Fall back to stderr if file logging is not possible (e.g., unwritable directory)
         fh = logging.StreamHandler()
@@ -34,7 +37,14 @@ def setup_logger(log_file='batcher.log'):
     
     return logger
 
-logger = setup_logger()
+# Lazy initialization - logger will be set up on first use
+_logger = None
+
+def get_logger():
+    global _logger
+    if _logger is None:
+        _logger = setup_logger()
+    return _logger
 
 # Define a model that batches parameters per config before sending them to the simulator
 class Batcher(umbridge.Model):
@@ -127,8 +137,9 @@ class Batcher(umbridge.Model):
             print(f"Batch started for config: {self.order} at {time.ctime()}")
 
         def _compute_thread(self):
-            # Log batch submission
-            logger.info(f"Batch submitted: config={json.dumps(self.config)}, parameters={json.dumps(self.parameters)}, real_count={self.real_param_count}")
+            # Log batch submission (summary only to avoid verbose output)
+            logger = get_logger()
+            logger.info(f"Batch submitted: batch_id={self.batch_id}, config_order={self.order}, real_count={self.real_param_count}, total_count={len(self.parameters)}")
             
             # Try this up to 3 times to avoid cluster issues
             last_exception = None
@@ -144,11 +155,12 @@ class Batcher(umbridge.Model):
             if self.output is None:
                 self.error = last_exception if last_exception else Exception("Batch processing failed with unknown error")
 
-            # Log output received
+            # Log output received (summary only)
             if self.output is not None:
-                logger.info(f"Output received: config={json.dumps(self.config)}, parameters={json.dumps(self.parameters)}, output={json.dumps(self.output)}")
+                output_len = len(self.output) if hasattr(self.output, '__len__') else 1
+                logger.info(f"Output received: batch_id={self.batch_id}, config_order={self.order}, output_length={output_len}")
             else:
-                logger.info(f"Output FAILED: config={json.dumps(self.config)}, parameters={json.dumps(self.parameters)}, error={str(self.error)}")
+                logger.info(f"Output FAILED: batch_id={self.batch_id}, config_order={self.order}, error={str(self.error)}")
 
             print(f"Output: {self.output}")
 
@@ -166,8 +178,11 @@ class Batcher(umbridge.Model):
         return [self.simulator.get_output_sizes(config)[0]]
 
     def __call__(self, parameters, config):
-        # Log incoming request
-        logger.info(f"Request received: config={json.dumps(config)}, parameters={json.dumps(parameters)}")
+        # Log incoming request (summary to reduce verbosity)
+        logger = get_logger()
+        config_order = config.get("order", "unknown")
+        param_lengths = [len(p) if hasattr(p, '__len__') else 1 for p in parameters]
+        logger.info(f"Request received: config_order={config_order}, num_parameters={len(parameters)}, parameter_lengths={param_lengths}")
         
         assert len(parameters) == 1, "Batching requires models to have a single input vector!"
 
