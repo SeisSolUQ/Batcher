@@ -3,6 +3,26 @@ import umbridge
 import threading
 import time
 import copy
+import logging
+import json
+from datetime import datetime
+
+# Setup simple logger
+def setup_logger(log_file='batcher.log'):
+    logger = logging.getLogger('Batcher')
+    logger.setLevel(logging.INFO)
+    logger.handlers.clear()  # Clear any existing handlers
+    
+    fh = logging.FileHandler(log_file, mode='a')
+    fh.setLevel(logging.INFO)
+    
+    formatter = logging.Formatter('%(asctime)s | %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+    fh.setFormatter(formatter)
+    logger.addHandler(fh)
+    
+    return logger
+
+logger = setup_logger()
 
 # Define a model that batches parameters per config before sending them to the simulator
 class Batcher(umbridge.Model):
@@ -20,6 +40,7 @@ class Batcher(umbridge.Model):
             self.simulator = simulator
             self.cli_args = cli_args
             self.batchLock = threading.Condition()
+            self.batch_id = f"{self.order}_{int(time.time()*1000)}"
             print(f"batch instance created with config: {self.order} at {time.ctime()}")
             self._batchsize = self.cli_args.batchsize2 if self.order=="4" else self.cli_args.batchsize
             print(f"Batch Size for this batch is: {self._batchsize}")
@@ -90,6 +111,9 @@ class Batcher(umbridge.Model):
             print(f"Batch started for config: {self.order} at {time.ctime()}")
 
         def _compute_thread(self):
+            # Log batch submission
+            logger.info(f"Batch submitted: config={json.dumps(self.config)}, parameters={json.dumps(self.parameters)}, real_count={len(self.parameters)}")
+            
             # Try this up to 3 times to avoid cluster issues
             last_exception = None
             for i in range(3):
@@ -103,6 +127,12 @@ class Batcher(umbridge.Model):
 
             if self.output is None:
                 self.error = last_exception if last_exception else Exception("Batch processing failed with unknown error")
+
+            # Log output received
+            if self.output is not None:
+                logger.info(f"Output received: config={json.dumps(self.config)}, parameters={json.dumps(self.parameters)}, output={json.dumps(self.output)}")
+            else:
+                logger.info(f"Output FAILED: config={json.dumps(self.config)}, parameters={json.dumps(self.parameters)}, error={str(self.error)}")
 
             print(f"Output: {self.output}")
 
@@ -120,6 +150,9 @@ class Batcher(umbridge.Model):
         return [self.simulator.get_output_sizes(config)[0]]
 
     def __call__(self, parameters, config):
+        # Log incoming request
+        logger.info(f"Request received: config={json.dumps(config)}, parameters={json.dumps(parameters)}")
+        
         assert len(parameters) == 1, "Batching requires models to have a single input vector!"
 
         config_unique_identifier = config["order"] # Identify configurations to be batched separately
