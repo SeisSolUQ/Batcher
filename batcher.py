@@ -143,9 +143,9 @@ class Batcher(umbridge.Model):
             print(f"Batch started for config: {self.order} at {time.ctime()}")
 
         def _compute_thread(self):
-            # Log batch submission (summary only to avoid verbose output)
+            # Log batch submission with metadata and parameters
             logger = get_logger()
-            logger.info(f"Batch submitted: batch_id={self.batch_id}, config_order={self.order}, real_count={self.real_param_count}, total_count={len(self.parameters)}")
+            logger.info(f"Batch submitted: batch_id={self.batch_id}, config_order={self.order}, real_count={self.real_param_count}, total_count={len(self.parameters)}, parameters={self.parameters}")
             
             # Try this up to 3 times to avoid cluster issues
             last_exception = None
@@ -156,21 +156,18 @@ class Batcher(umbridge.Model):
                 except Exception as e:
                     last_exception = e
                     print(f"Failed to submit batch. Retrying {i+1} up to 3 times. Error message: {e}")
-                    # Log exception with traceback for debugging
-                    logger.error(f"Simulator call failed (attempt {i+1}/3): {str(e)}", exc_info=True)
+                    logger.error(f"Simulator call failed (attempt {i+1}/3): {str(e)}")
                     time.sleep(10)
 
             if self.output is None:
                 self.error = last_exception if last_exception else Exception("Batch processing failed with unknown error")
 
-            # Log output received (summary only)
+            # Log output received with metadata and actual output
             if self.output is not None:
                 output_len = len(self.output) if hasattr(self.output, '__len__') else 1
-                logger.info(f"Output received: batch_id={self.batch_id}, config_order={self.order}, output_length={output_len}")
+                logger.info(f"Output received: batch_id={self.batch_id}, config_order={self.order}, output_length={output_len}, parameters={self.parameters}, output={self.output}")
             else:
-                # Log final failure with full traceback
-                error_trace = ''.join(traceback.format_exception(type(self.error), self.error, self.error.__traceback__)) if self.error else 'Unknown error'
-                logger.error(f"Output FAILED: batch_id={self.batch_id}, config_order={self.order}, error={str(self.error)}, traceback={error_trace}")
+                logger.error(f"Output FAILED: batch_id={self.batch_id}, config_order={self.order}, parameters={self.parameters}, error={str(self.error)}")
 
             print(f"Output: {self.output}")
 
@@ -188,11 +185,11 @@ class Batcher(umbridge.Model):
         return [self.simulator.get_output_sizes(config)[0]]
 
     def __call__(self, parameters, config):
-        # Log incoming request (summary to reduce verbosity)
+        # Log incoming request with metadata and parameters
         logger = get_logger()
         config_order = config.get("order", "unknown")
         param_lengths = [len(p) if hasattr(p, '__len__') else 1 for p in parameters]
-        logger.info(f"Request received: config_order={config_order}, num_parameters={len(parameters)}, parameter_lengths={param_lengths}")
+        logger.info(f"Request received: config_order={config_order}, num_parameters={len(parameters)}, parameter_lengths={param_lengths}, parameters={parameters}")
         
         assert len(parameters) == 1, "Batching requires models to have a single input vector!"
 

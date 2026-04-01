@@ -21,60 +21,48 @@ Where LEVEL is INFO or ERROR.
 ## What Gets Logged
 
 ### 1. Request Received
-Every time a request comes in (summary to reduce log volume):
+Every time a request comes in:
 ```
-2026-03-30 11:02:20 | INFO | Request received: config_order=3, num_parameters=1, parameter_lengths=[2]
+2026-03-30 11:02:20 | INFO | Request received: config_order=3, num_parameters=1, parameter_lengths=[2], parameters=[[0.1, 0.2]]
 ```
 
 ### 2. Batch Submitted
 When a batch is full or timeout is reached and sent to the simulator:
 ```
-2026-03-30 11:02:20 | INFO | Batch submitted: batch_id=3_a1b2c3d4e5f6g7h8, config_order=3, real_count=1, total_count=2
+2026-03-30 11:02:20 | INFO | Batch submitted: batch_id=3_a1b2c3d4e5f6g7h8, config_order=3, real_count=1, total_count=2, parameters=[[0.1, 0.2], [0.1, 0.2]]
 ```
-- `batch_id` uniquely identifies this batch instance for log correlation (uses full UUID)
+- `batch_id` uniquely identifies this batch instance for tracing
 - `config_order` shows which configuration this batch belongs to
 - `real_count` shows how many are real submissions (excluding padding)
 - `total_count` shows total parameters including padding
+- `parameters` shows all actual parameters sent to simulator
 
 ### 3. Output Received
-When the simulator returns output (summary only):
+When the simulator returns output:
 ```
-2026-03-30 11:02:20 | INFO | Output received: batch_id=3_a1b2c3d4e5f6g7h8, config_order=3, output_length=2
+2026-03-30 11:02:20 | INFO | Output received: batch_id=3_a1b2c3d4e5f6g7h8, config_order=3, output_length=2, parameters=[[0.1, 0.2], [0.1, 0.2]], output=[0.5, 0.5]
 ```
+- Shows both the parameters that were sent and the output that was received
 
-Or if it fails (includes full error traceback):
+Or if it fails:
 ```
-2026-03-30 11:02:25 | ERROR | Simulator call failed (attempt 1/3): Connection timeout
-... (full stack trace)
-2026-03-30 11:02:35 | ERROR | Output FAILED: batch_id=3_a1b2c3d4e5f6g7h8, config_order=3, error=Connection timeout, traceback=...
+2026-03-30 11:02:25 | ERROR | Output FAILED: batch_id=3_a1b2c3d4e5f6g7h8, config_order=3, parameters=[[0.1, 0.2]], error=Connection timeout
 ```
-
-**Note:** Error logs include full stack traces to help diagnose simulator failures.
 
 ## Example Log
 
-Here's a complete trace of one successful batch:
+Here's a complete trace of one batch:
 ```
-2026-03-30 11:02:20 | INFO | Request received: config_order=3, num_parameters=1, parameter_lengths=[2]
-2026-03-30 11:02:20 | INFO | Batch submitted: batch_id=3_a1b2c3d4e5f6g7h8, config_order=3, real_count=1, total_count=2
-2026-03-30 11:02:20 | INFO | Output received: batch_id=3_a1b2c3d4e5f6g7h8, config_order=3, output_length=2
-```
-
-And a failed batch with error details:
-```
-2026-03-30 11:02:25 | INFO | Request received: config_order=4, num_parameters=1, parameter_lengths=[3]
-2026-03-30 11:02:25 | INFO | Batch submitted: batch_id=4_b5c6d7e8f9g0h1i2, config_order=4, real_count=2, total_count=2
-2026-03-30 11:02:25 | ERROR | Simulator call failed (attempt 1/3): HTTPError 500
-... (full stack trace)
-2026-03-30 11:02:35 | ERROR | Output FAILED: batch_id=4_b5c6d7e8f9g0h1i2, config_order=4, error=HTTPError 500, traceback=...
+2026-03-30 11:02:20 | INFO | Request received: config_order=3, num_parameters=1, parameter_lengths=[2], parameters=[[0.1, 0.2]]
+2026-03-30 11:02:20 | INFO | Batch submitted: batch_id=3_a1b2c3d4e5f6g7h8, config_order=3, real_count=1, total_count=2, parameters=[[0.1, 0.2], [0.1, 0.2]]
+2026-03-30 11:02:20 | INFO | Output received: batch_id=3_a1b2c3d4e5f6g7h8, config_order=3, output_length=2, parameters=[[0.1, 0.2], [0.1, 0.2]], output=[0.5, 0.5]
 ```
 
-## Performance Notes
-
-Logs are kept concise to minimize performance impact:
-- Only summaries are logged (sizes, counts, IDs) not full data payloads
-- This keeps log volume manageable under high load
-- Full parameter and output data is NOT logged to avoid performance degradation
+You can see:
+- What parameters came in
+- What batch was submitted (including padding)
+- What output was received
+- The batch_id ties everything together for tracing
 
 ## Debugging Tips
 
