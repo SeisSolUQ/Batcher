@@ -5,7 +5,6 @@ import time
 import copy
 import logging
 from logging.handlers import RotatingFileHandler
-import json
 import os
 import uuid
 import traceback
@@ -33,7 +32,7 @@ def setup_logger(log_file='batcher.log', max_bytes=10*1024*1024, backup_count=3)
     
     fh.setLevel(logging.INFO)
     
-    formatter = logging.Formatter('%(asctime)s | %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+    formatter = logging.Formatter('%(asctime)s | %(levelname)s | %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
     fh.setFormatter(formatter)
     logger.addHandler(fh)
     
@@ -67,8 +66,9 @@ class Batcher(umbridge.Model):
             self.simulator = simulator
             self.cli_args = cli_args
             self.batchLock = threading.Condition()
-            # Use UUID for guaranteed uniqueness under high load
-            self.batch_id = f"{self.order}_{uuid.uuid4().hex[:8]}"
+            # Use a UUID-based suffix for a practically unique batch ID under high load
+            # (using full UUID to ensure uniqueness even under very high load)
+            self.batch_id = f"{self.order}_{uuid.uuid4().hex}"
             self.real_param_count = 0  # Track count before padding
             print(f"batch instance created with id {self.batch_id} and config: {self.order} at {time.ctime()}")
             self._batchsize = self.cli_args.batchsize2 if self.order=="4" else self.cli_args.batchsize
