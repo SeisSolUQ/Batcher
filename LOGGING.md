@@ -27,9 +27,9 @@ Request received: config_order=3, num_parameters=1, parameter_lengths=[2]
 ### 2. Batch Submitted
 When a batch is full or timeout is reached and sent to the simulator:
 ```
-Batch submitted: batch_id=3_1774862845543, config_order=3, real_count=1, total_count=2
+Batch submitted: batch_id=3_a1b2c3d4, config_order=3, real_count=1, total_count=2
 ```
-- `batch_id` uniquely identifies this batch instance
+- `batch_id` identifies this batch instance for log correlation (guaranteed unique using UUID)
 - `config_order` shows which configuration this batch belongs to
 - `real_count` shows how many are real submissions (excluding padding)
 - `total_count` shows total parameters including padding
@@ -37,21 +37,34 @@ Batch submitted: batch_id=3_1774862845543, config_order=3, real_count=1, total_c
 ### 3. Output Received
 When the simulator returns output (summary only):
 ```
-Output received: batch_id=3_1774862845543, config_order=3, output_length=2
+Output received: batch_id=3_a1b2c3d4, config_order=3, output_length=2
 ```
 
-Or if it fails:
+Or if it fails (includes full error traceback):
 ```
-Output FAILED: batch_id=3_1774862845543, config_order=3, error=Connection timeout
+ERROR | Simulator call failed (attempt 1/3): Connection timeout
+... (full stack trace)
+ERROR | Output FAILED: batch_id=3_a1b2c3d4, config_order=3, error=Connection timeout, traceback=...
 ```
+
+**Note:** Error logs include full stack traces to help diagnose simulator failures.
 
 ## Example Log
 
-Here's a complete trace of one batch:
+Here's a complete trace of one successful batch:
 ```
 2026-03-30 11:02:20 | Request received: config_order=3, num_parameters=1, parameter_lengths=[2]
-2026-03-30 11:02:20 | Batch submitted: batch_id=3_1774862845543, config_order=3, real_count=1, total_count=2
-2026-03-30 11:02:20 | Output received: batch_id=3_1774862845543, config_order=3, output_length=2
+2026-03-30 11:02:20 | Batch submitted: batch_id=3_a1b2c3d4, config_order=3, real_count=1, total_count=2
+2026-03-30 11:02:20 | Output received: batch_id=3_a1b2c3d4, config_order=3, output_length=2
+```
+
+And a failed batch with error details:
+```
+2026-03-30 11:02:25 | Request received: config_order=4, num_parameters=1, parameter_lengths=[3]
+2026-03-30 11:02:25 | Batch submitted: batch_id=4_b5c6d7e8, config_order=4, real_count=2, total_count=2
+2026-03-30 11:02:25 | ERROR | Simulator call failed (attempt 1/3): HTTPError 500
+... (full stack trace)
+2026-03-30 11:02:35 | ERROR | Output FAILED: batch_id=4_b5c6d7e8, config_order=4, error=HTTPError 500, traceback=...
 ```
 
 ## Performance Notes
@@ -81,7 +94,7 @@ grep -c "Output received" batcher.log
 
 ### Find a specific batch by ID
 ```bash
-grep "batch_id=3_1774862845543" batcher.log
+grep "batch_id=3_a1b2c3d4" batcher.log
 ```
 
 ### Find batches with specific config

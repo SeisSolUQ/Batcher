@@ -7,6 +7,8 @@ import logging
 from logging.handlers import RotatingFileHandler
 import json
 import os
+import uuid
+import traceback
 
 # Setup simple logger
 def setup_logger(log_file='batcher.log', max_bytes=10*1024*1024, backup_count=3):
@@ -39,11 +41,14 @@ def setup_logger(log_file='batcher.log', max_bytes=10*1024*1024, backup_count=3)
 
 # Lazy initialization - logger will be set up on first use
 _logger = None
+_logger_lock = threading.Lock()
 
 def get_logger():
     global _logger
     if _logger is None:
-        _logger = setup_logger()
+        with _logger_lock:
+            if _logger is None:
+                _logger = setup_logger()
     return _logger
 
 # Define a model that batches parameters per config before sending them to the simulator
@@ -62,7 +67,8 @@ class Batcher(umbridge.Model):
             self.simulator = simulator
             self.cli_args = cli_args
             self.batchLock = threading.Condition()
-            self.batch_id = f"{self.order}_{int(time.time()*1000)}"
+            # Use UUID for guaranteed uniqueness under high load
+            self.batch_id = f"{self.order}_{uuid.uuid4().hex[:8]}"
             self.real_param_count = 0  # Track count before padding
             print(f"batch instance created with id {self.batch_id} and config: {self.order} at {time.ctime()}")
             self._batchsize = self.cli_args.batchsize2 if self.order=="4" else self.cli_args.batchsize
@@ -150,6 +156,8 @@ class Batcher(umbridge.Model):
                 except Exception as e:
                     last_exception = e
                     print(f"Failed to submit batch. Retrying {i+1} up to 3 times. Error message: {e}")
+                    # Log exception with traceback for debugging
+                    logger.error(f"Simulator call failed (attempt {i+1}/3): {str(e)}", exc_info=True)
                     time.sleep(10)
 
             if self.output is None:
@@ -160,7 +168,9 @@ class Batcher(umbridge.Model):
                 output_len = len(self.output) if hasattr(self.output, '__len__') else 1
                 logger.info(f"Output received: batch_id={self.batch_id}, config_order={self.order}, output_length={output_len}")
             else:
-                logger.info(f"Output FAILED: batch_id={self.batch_id}, config_order={self.order}, error={str(self.error)}")
+                # Log final failure with full traceback
+                error_trace = ''.join(traceback.format_exception(type(self.error), self.error, self.error.__traceback__)) if self.error else 'Unknown error'
+                logger.error(f"Output FAILED: batch_id={self.batch_id}, config_order={self.order}, error={str(self.error)}, traceback={error_trace}")
 
             print(f"Output: {self.output}")
 
