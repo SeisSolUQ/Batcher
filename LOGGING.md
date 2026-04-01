@@ -62,7 +62,9 @@ You can see:
 - What parameters came in
 - What batch was submitted (including padding)
 - What output was received
-- The batch_id ties everything together for tracing
+- The batch_id ties batch submission and output events together for tracing
+  
+Note: "Request received" logs don't include `batch_id` since requests are logged before batch assignment. Use `config_order` and timestamps to correlate requests with batches.
 
 ## Debugging Tips
 

@@ -155,7 +155,7 @@ class Batcher(umbridge.Model):
                 except Exception as e:
                     last_exception = e
                     print(f"Failed to submit batch. Retrying {i+1} up to 3 times. Error message: {e}")
-                    logger.error(f"Simulator call failed (attempt {i+1}/3): {str(e)}")
+                    logger.exception(f"Simulator call failed (attempt {i+1}/3)")
                     time.sleep(10)
 
             if self.output is None:
