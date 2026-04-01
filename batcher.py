@@ -7,7 +7,6 @@ import logging
 from logging.handlers import RotatingFileHandler
 import os
 import uuid
-import traceback
 
 # Setup simple logger
 def setup_logger(log_file='batcher.log', max_bytes=10*1024*1024, backup_count=3):
