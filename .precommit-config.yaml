@@ -1,0 +1,21 @@
+repos:
+  # 1. Flake8 Linter
+  - repo: https://github.com/PyCQA/flake8
+    rev: 7.0.0  # Use the latest stable version
+    hooks:
+      - id: flake8
+        # Matching the arguments we set up for your CI pipeline
+        args: [--max-line-length=120, --max-complexity=10]
+        additional_dependencies: [flake8-bugbear] # Optional: adds extra bug-finding checks
+
+  # 2. Local Test Runner
+  - repo: local
+    hooks:
+      - id: run-tests
+        name: Run unit tests
+        # This command discovers and runs all files starting with "test_" in your directory
+        entry: python3 -m unittest discover -p "test_*.py"
+        language: system
+        types: [python]
+        # We set this to false so it runs the whole suite, not just on changed files
+        pass_filenames: false
