@@ -176,6 +176,9 @@ class Batcher(umbridge.Model):
         self.cli_args = cli_args
         self.current_batches = {}
         self.lock = threading.Lock()
+        # Additions for queue awareness
+        self.active_computes = 0
+        self.active_computes_condition = threading.Condition()
 
     def get_input_sizes(self, config):
         return [self.simulator.get_input_sizes(config)[0]]
