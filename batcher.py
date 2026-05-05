@@ -8,38 +8,45 @@ from logging.handlers import RotatingFileHandler
 import os
 import uuid
 
+
 # Setup simple logger
-def setup_logger(log_file='batcher.log', max_bytes=10*1024*1024, backup_count=3):
-    logger = logging.getLogger('Batcher')
+def setup_logger(log_file="batcher.log", max_bytes=10 * 1024 * 1024, backup_count=3):
+    logger = logging.getLogger("Batcher")
     logger.setLevel(logging.INFO)
     logger.propagate = False  # Avoid duplicate logs if root logger is configured
-    
+
     # Only add a file handler if one for this log_file is not already present
     log_file_path = os.path.abspath(log_file)
     for handler in logger.handlers:
         if isinstance(handler, (logging.FileHandler, RotatingFileHandler)):
             # Compare absolute paths to see if this handler already targets our log file
-            if os.path.abspath(getattr(handler, 'baseFilename', '')) == log_file_path:
+            if os.path.abspath(getattr(handler, "baseFilename", "")) == log_file_path:
                 return logger
-    
+
     try:
         # Use RotatingFileHandler to prevent unbounded log growth
-        fh = RotatingFileHandler(log_file, mode='a', maxBytes=max_bytes, backupCount=backup_count)
+        fh = RotatingFileHandler(
+            log_file, mode="a", maxBytes=max_bytes, backupCount=backup_count
+        )
     except OSError:
         # Fall back to stderr if file logging is not possible (e.g., unwritable directory)
         fh = logging.StreamHandler()
-    
+
     fh.setLevel(logging.INFO)
-    
-    formatter = logging.Formatter('%(asctime)s | %(levelname)s | %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+
+    formatter = logging.Formatter(
+        "%(asctime)s | %(levelname)s | %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+    )
     fh.setFormatter(formatter)
     logger.addHandler(fh)
-    
+
     return logger
+
 
 # Lazy initialization - logger will be set up on first use
 _logger = None
 _logger_lock = threading.Lock()
+
 
 def get_logger():
     global _logger
@@ -49,11 +56,12 @@ def get_logger():
                 _logger = setup_logger()
     return _logger
 
+
 # Define a model that batches parameters per config before sending them to the simulator
 class Batcher(umbridge.Model):
 
-    class Batch():
-        def __init__(self, config, simulator, cli_args):
+    class Batch:
+        def __init__(self, config, simulator, cli_args, parent_batcher):
             self.parameters = []
             self.output = None
             self.error = None
@@ -64,17 +72,24 @@ class Batcher(umbridge.Model):
             self.order = self.config["order"]
             self.simulator = simulator
             self.cli_args = cli_args
+            self.parent_batcher = parent_batcher
             self.batchLock = threading.Condition()
             # Use a UUID-based suffix for a practically unique batch ID under high load
             # (using full UUID to ensure uniqueness even under very high load)
             self.batch_id = f"{self.order}_{uuid.uuid4().hex}"
             self.real_param_count = 0  # Track count before padding
-            print(f"batch instance created with id {self.batch_id} and config: {self.order} at {time.ctime()}")
-            self._batchsize = self.cli_args.batchsize2 if self.order=="4" else self.cli_args.batchsize
+            print(
+                f"batch instance created with id {self.batch_id} and config: {self.order} at {time.ctime()}"
+            )
+            self._batchsize = (
+                self.cli_args.batchsize2
+                if self.order == "4"
+                else self.cli_args.batchsize
+            )
             print(f"Batch Size for this batch is: {self._batchsize}")
 
         def is_full(self):
-            return len(self.parameters) == self._batchsize 
+            return len(self.parameters) == self._batchsize
 
         def _start_timeout_exceeded(self):
             return time.time() - self.last_input_time > self.cli_args.timeout
@@ -85,40 +100,55 @@ class Batcher(umbridge.Model):
         def _wait_for_batch_and_submit(self):
             with self.batchLock:
                 while not self.is_computing():
-                    remaining_time = self.cli_args.timeout - (time.time() - self.last_input_time)
-                    
-                    if (self.is_full() or remaining_time <= 0):
+                    remaining_time = self.cli_args.timeout - (
+                        time.time() - self.last_input_time
+                    )
+
+                    if self.is_full() or remaining_time <= 0:
+                        # check global queue state before padding
+                        if not self.is_full():
+                            with self.parent_batcher.active_computes_condition:
+                                if self.parent_batcher.active_computes > 0:
+                                    self.last_input_time = time.time()
+                                    continue
+
                         # Store real count before padding
                         self.real_param_count = len(self.parameters)
-                        
+
                         # Pad parameters in case the batch is not full
-                        print(f"The actual size of the parameters is {self.real_param_count}")
+                        print(
+                            f"The actual size of the parameters is {self.real_param_count}"
+                        )
                         # Use the last parameter for padding to maintain valid input shapes/values
                         if self.real_param_count > 0:
                             padding_vector = self.parameters[-1]
                         else:
                             # This should not happen since we always add a sample before waiting
-                            raise RuntimeError("Cannot pad an empty batch - no parameters available for shape inference")
+                            raise RuntimeError(
+                                "Cannot pad an empty batch - no parameters available for shape inference"
+                            )
 
                         while len(self.parameters) < self._batchsize:
                             self.parameters.append(copy.deepcopy(padding_vector))
                         self._compute()
                         self.batchLock.notify_all()
                         break
-                    
+
                     self.batchLock.wait(max(0, remaining_time))
 
             if self.thread.is_alive():
                 self.thread.join()
 
             if self.output is None and self.error is None:
-                raise RuntimeError("Batch processing finished but no output or error set.")
+                raise RuntimeError(
+                    "Batch processing finished but no output or error set."
+                )
 
         def add_sample(self, parameter):
             with self.batchLock:
                 if self.is_computing() or self.is_full():
                     return -1
-                
+
                 own_entry_index = len(self.parameters)
                 self.parameters.append(parameter)
                 self.last_input_time = time.time()
@@ -127,12 +157,12 @@ class Batcher(umbridge.Model):
 
         def wait_for_result(self, own_entry_index):
             print(f"Batched {own_entry_index+1} / {self._batchsize} at {time.ctime()}")
-            
+
             self._wait_for_batch_and_submit()
-            
+
             if self.error is not None:
                 raise Exception("Batch processing failed") from self.error
-                
+
             return [self.output[own_entry_index]]
 
         def _compute(self):
@@ -144,29 +174,51 @@ class Batcher(umbridge.Model):
         def _compute_thread(self):
             # Log batch submission with metadata and parameters
             logger = get_logger()
-            logger.info(f"Batch submitted: batch_id={self.batch_id}, config_order={self.order}, real_count={self.real_param_count}, total_count={len(self.parameters)}, parameters={self.parameters}")
-            
+            logger.info(
+                f"Batch submitted: batch_id={self.batch_id}, config_order={self.order}, real_count={self.real_param_count}, total_count={len(self.parameters)}, parameters={self.parameters}"
+            )
+
+            # Increment global active computes
+            with self.parent_batcher.active_computes_condition:
+                self.parent_batcher.active_computes += 1
+
             # Try this up to 3 times to avoid cluster issues
             last_exception = None
-            for i in range(3):
-                try:
-                    self.output = self.simulator(self.parameters, self.config)
-                    break
-                except Exception as e:
-                    last_exception = e
-                    print(f"Failed to submit batch. Retrying {i+1} up to 3 times. Error message: {e}")
-                    logger.exception(f"Simulator call failed (attempt {i+1}/3)")
-                    time.sleep(10)
+            try:
+                for i in range(3):
+                    try:
+                        self.output = self.simulator(self.parameters, self.config)
+                        break
+                    except Exception as e:
+                        last_exception = e
+                        print(
+                            f"Failed to submit batch. Retrying {i+1} up to 3 times. Error message: {e}"
+                        )
+                        logger.exception(f"Simulator call failed (attempt {i+1}/3)")
+                        time.sleep(10)
+            finally:
+                # Decrement global active computes when done (success or fail)
+                with self.parent_batcher.active_computes_condition:
+                    self.parent_batcher.active_computes -= 1
+                    self.parent_batcher.active_computes_condition.notify_all()
 
             if self.output is None:
-                self.error = last_exception if last_exception else Exception("Batch processing failed with unknown error")
+                self.error = (
+                    last_exception
+                    if last_exception
+                    else Exception("Batch processing failed with unknown error")
+                )
 
             # Log output received with metadata and actual output
             if self.output is not None:
-                output_len = len(self.output) if hasattr(self.output, '__len__') else 1
-                logger.info(f"Output received: batch_id={self.batch_id}, config_order={self.order}, output_length={output_len}, parameters={self.parameters}, output={self.output}")
+                output_len = len(self.output) if hasattr(self.output, "__len__") else 1
+                logger.info(
+                    f"Output received: batch_id={self.batch_id}, config_order={self.order}, output_length={output_len}, parameters={self.parameters}, output={self.output}"
+                )
             else:
-                logger.error(f"Output FAILED: batch_id={self.batch_id}, config_order={self.order}, parameters={self.parameters}, error={str(self.error)}")
+                logger.error(
+                    f"Output FAILED: batch_id={self.batch_id}, config_order={self.order}, parameters={self.parameters}, error={str(self.error)}"
+                )
 
             print(f"Output: {self.output}")
 
@@ -190,12 +242,18 @@ class Batcher(umbridge.Model):
         # Log incoming request with metadata and parameters
         logger = get_logger()
         config_order = config.get("order", "unknown")
-        param_lengths = [len(p) if hasattr(p, '__len__') else 1 for p in parameters]
-        logger.info(f"Request received: config_order={config_order}, num_parameters={len(parameters)}, parameter_lengths={param_lengths}, parameters={parameters}")
-        
-        assert len(parameters) == 1, "Batching requires models to have a single input vector!"
+        param_lengths = [len(p) if hasattr(p, "__len__") else 1 for p in parameters]
+        logger.info(
+            f"Request received: config_order={config_order}, num_parameters={len(parameters)}, parameter_lengths={param_lengths}, parameters={parameters}"
+        )
 
-        config_unique_identifier = config["order"] # Identify configurations to be batched separately
+        assert (
+            len(parameters) == 1
+        ), "Batching requires models to have a single input vector!"
+
+        config_unique_identifier = config[
+            "order"
+        ]  # Identify configurations to be batched separately
         print(f"Unique identifier: {config_unique_identifier}")
 
         current_batch = None
@@ -204,13 +262,15 @@ class Batcher(umbridge.Model):
         while True:
             with self.lock:
                 current_batch = self.current_batches.get(config_unique_identifier, None)
-                
-                if (current_batch is None):
-                    self.current_batches[config_unique_identifier] = self.Batch(config, self.simulator, self.cli_args)
+
+                if current_batch is None:
+                    self.current_batches[config_unique_identifier] = self.Batch(
+                        config, self.simulator, self.cli_args, self
+                    )
                     current_batch = self.current_batches[config_unique_identifier]
 
             own_entry_index = current_batch.add_sample(parameters[0])
-            
+
             if own_entry_index != -1:
                 break
 
@@ -225,25 +285,49 @@ class Batcher(umbridge.Model):
     def supports_evaluate(self):
         return self.simulator.supports_evaluate()
 
+
 if __name__ == "__main__":
     # Read CLI arguments
-    parser = argparse.ArgumentParser(description='Minimal HTTP model demo.')
-    parser.add_argument('url', metavar='url', type=str,
-                        help='the URL at which the model is running, for example http://localhost:4242')
-    parser.add_argument('model', metavar='model', type=str,
-                        help='the model name to connect to, for example "forward"')
-    parser.add_argument('batchsize', metavar='batchsize', type=int,
-                        help='the batch size to use for coarser model, for example 8')
-    parser.add_argument('batchsize2', metavar='batchsize2', type=int,
-                        help='the batch size to use for finer model, for example 2')
-    parser.add_argument('port', metavar='port', type=int,
-                        help='the port to listen on, for example 4242')
-    parser.add_argument('timeout', metavar='timeout', type=float,
-                        help='the timeout to wait for a batch to fill in seconds, for example 5')
+    parser = argparse.ArgumentParser(description="Minimal HTTP model demo.")
+    parser.add_argument(
+        "url",
+        metavar="url",
+        type=str,
+        help="the URL at which the model is running, for example http://localhost:4242",
+    )
+    parser.add_argument(
+        "model",
+        metavar="model",
+        type=str,
+        help='the model name to connect to, for example "forward"',
+    )
+    parser.add_argument(
+        "batchsize",
+        metavar="batchsize",
+        type=int,
+        help="the batch size to use for coarser model, for example 8",
+    )
+    parser.add_argument(
+        "batchsize2",
+        metavar="batchsize2",
+        type=int,
+        help="the batch size to use for finer model, for example 2",
+    )
+    parser.add_argument(
+        "port", metavar="port", type=int, help="the port to listen on, for example 4242"
+    )
+    parser.add_argument(
+        "timeout",
+        metavar="timeout",
+        type=float,
+        help="the timeout to wait for a batch to fill in seconds, for example 5",
+    )
     args = parser.parse_args()
     print(f"Connecting to host URL {args.url}, model {args.model}")
 
     # Connect to a simulator that receives batches of parameters
     sim = umbridge.HTTPModel(args.url, args.model)
 
-    umbridge.serve_models([Batcher(sim, args)], args.port, max_workers=100, error_checks=False)
+    umbridge.serve_models(
+        [Batcher(sim, args)], args.port, max_workers=100, error_checks=False
+    )
