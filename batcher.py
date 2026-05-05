@@ -98,6 +98,10 @@ class Batcher(umbridge.Model):
             return self.thread is not None
 
         def _wait_for_batch_and_submit(self):
+            # flag to ensure we only print the waiting message once per batch
+            waiting_logged = False
+            logger = get_logger()
+
             with self.batchLock:
                 while not self.is_computing():
                     remaining_time = self.cli_args.timeout - (
@@ -109,6 +113,16 @@ class Batcher(umbridge.Model):
                         if not self.is_full():
                             with self.parent_batcher.active_computes_condition:
                                 if self.parent_batcher.active_computes > 0:
+                                    # log the pause if we haven't already
+                                    if not waiting_logged:
+                                        msg = (
+                                            f"Batch {self.batch_id} (Order {self.order}) "
+                                            f"paused timeout. Waiting for {self.parent_batcher.active_computes} active job(s) to finish..."
+                                        )
+                                        print(msg)
+                                        logger.info(msg)
+                                        waiting_logged = True
+
                                     self.last_input_time = time.time()
                                     continue
 
