@@ -143,7 +143,8 @@ class Batcher(umbridge.Model):
                             )
 
                         while len(self.parameters) < self._batchsize:
-                            self.parameters.append(copy.deepcopy(padding_vector))
+                            self.parameters.append(
+                                copy.deepcopy(padding_vector))
                         self._compute()
                         self.batchLock.notify_all()
                         break
@@ -170,7 +171,8 @@ class Batcher(umbridge.Model):
                 return own_entry_index
 
         def wait_for_result(self, own_entry_index):
-            print(f"Batched {own_entry_index+1} / {self._batchsize} at {time.ctime()}")
+            print(
+                f"Batched {own_entry_index+1} / {self._batchsize} at {time.ctime()}")
 
             self._wait_for_batch_and_submit()
 
@@ -201,14 +203,16 @@ class Batcher(umbridge.Model):
             try:
                 for i in range(3):
                     try:
-                        self.output = self.simulator(self.parameters, self.config)
+                        self.output = self.simulator(
+                            self.parameters, self.config)
                         break
                     except Exception as e:
                         last_exception = e
                         print(
                             f"Failed to submit batch. Retrying {i+1} up to 3 times. Error message: {e}"
                         )
-                        logger.exception(f"Simulator call failed (attempt {i+1}/3)")
+                        logger.exception(
+                            f"Simulator call failed (attempt {i+1}/3)")
                         time.sleep(10)
             finally:
                 # Decrement global active computes when done (success or fail)
@@ -225,7 +229,8 @@ class Batcher(umbridge.Model):
 
             # Log output received with metadata and actual output
             if self.output is not None:
-                output_len = len(self.output) if hasattr(self.output, "__len__") else 1
+                output_len = len(self.output) if hasattr(
+                    self.output, "__len__") else 1
                 logger.info(
                     f"Output received: batch_id={self.batch_id}, config_order={self.order}, output_length={output_len}, parameters={self.parameters}, output={self.output}"
                 )
@@ -256,7 +261,8 @@ class Batcher(umbridge.Model):
         # Log incoming request with metadata and parameters
         logger = get_logger()
         config_order = config.get("order", "unknown")
-        param_lengths = [len(p) if hasattr(p, "__len__") else 1 for p in parameters]
+        param_lengths = [len(p) if hasattr(p, "__len__")
+                         else 1 for p in parameters]
         logger.info(
             f"Request received: config_order={config_order}, num_parameters={len(parameters)}, parameter_lengths={param_lengths}, parameters={parameters}"
         )
@@ -275,7 +281,8 @@ class Batcher(umbridge.Model):
 
         while True:
             with self.lock:
-                current_batch = self.current_batches.get(config_unique_identifier, None)
+                current_batch = self.current_batches.get(
+                    config_unique_identifier, None)
 
                 if current_batch is None:
                     self.current_batches[config_unique_identifier] = self.Batch(
