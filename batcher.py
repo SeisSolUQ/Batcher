@@ -97,40 +97,52 @@ class Batcher(umbridge.Model):
         def is_computing(self):
             return self.thread is not None
 
-        def _wait_for_active_computes(self, logger, waiting_logged):
+        def _wait_for_active_computes(
+            self, logger, waiting_logged
+        ):
             """Check if active computes are running and wait
-            for them to finish. Returns True if we should
-            continue the loop (i.e. we waited), along with
-            updated waiting_logged flag."""
+            for them to finish. Returns (should_continue,
+            waiting_logged) where should_continue is True if
+            we waited and the caller should re-check.
+
+            Lock ordering: callers hold batchLock on entry.
+            We release batchLock, then acquire
+            active_computes_condition to wait, avoiding
+            lock-order inversion."""
+            # Snapshot the counter under its lock
             with self.parent_batcher.active_computes_condition:
-                if self.parent_batcher.active_computes <= 0:
-                    return False, waiting_logged
+                active = self.parent_batcher.active_computes
 
-                if not waiting_logged:
-                    msg = (
-                        f"Batch {self.batch_id}"
-                        f" (Order {self.order})"
-                        " paused timeout."
-                        f" Waiting for {self.parent_batcher.active_computes}"
-                        " active job(s) to finish..."
+            if active <= 0:
+                return False, waiting_logged
+
+            if not waiting_logged:
+                msg = (
+                    f"Batch {self.batch_id}"
+                    f" (Order {self.order})"
+                    " paused timeout."
+                    f" Waiting for {active}"
+                    " active job(s) to finish..."
+                )
+                print(msg)
+                logger.info(msg)
+                waiting_logged = True
+
+            # Release batchLock so other threads can add
+            # samples, then wait on the condition.
+            # We do NOT hold active_computes_condition while
+            # reacquiring batchLock, avoiding lock-order
+            # inversion.
+            self.batchLock.release()
+            try:
+                with self.parent_batcher.active_computes_condition:
+                    self.parent_batcher.active_computes_condition.wait(
+                        timeout=self.cli_args.timeout
                     )
-                    print(msg)
-                    logger.info(msg)
-                    waiting_logged = True
-
-                # Release batchLock so other threads can add
-                # samples, then wait on the condition that
-                # gets notified when computes finish.
-                self.batchLock.release()
-                try:
-                    with self.parent_batcher.active_computes_condition:
-                        self.parent_batcher.active_computes_condition.wait(
-                            timeout=self.cli_args.timeout
-                        )
-                finally:
-                    self.batchLock.acquire()
-                self.last_input_time = time.time()
-                return True, waiting_logged
+            finally:
+                self.batchLock.acquire()
+            self.last_input_time = time.time()
+            return True, waiting_logged
 
         def _wait_for_batch_and_submit(self):
             waiting_logged = False
@@ -215,10 +227,17 @@ class Batcher(umbridge.Model):
             # active_computes == 0 after dispatch.
             with self.parent_batcher.active_computes_condition:
                 self.parent_batcher.active_computes += 1
-            self.thread = threading.Thread(
-                target=self._compute_thread
-            )
-            self.thread.start()
+            try:
+                self.thread = threading.Thread(
+                    target=self._compute_thread
+                )
+                self.thread.start()
+            except Exception:
+                # Rollback if thread creation/start fails
+                with self.parent_batcher.active_computes_condition:
+                    self.parent_batcher.active_computes -= 1
+                    self.parent_batcher.active_computes_condition.notify_all()
+                raise
             print(
                 f"Batch started for config: {self.order}"
                 f" at {time.ctime()}"

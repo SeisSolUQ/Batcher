@@ -9,13 +9,12 @@ import batcher
 class TestQueueAwareness(unittest.TestCase):
     def test_race_condition_active_computes_increment(self):
         """
-        Bug 1: active_computes is incremented inside
-        _compute_thread(), AFTER thread.start() returns. This
-        test widens that race window by monkey-patching
-        _compute_thread to sleep before the real body runs,
-        proving that another thread can observe
-        active_computes == 0 even though a compute was just
-        dispatched.
+        Bug 1: active_computes was previously incremented
+        inside _compute_thread(), AFTER thread.start()
+        returned. This test verifies the fix: we monkey-patch
+        _compute() to read active_computes right after
+        thread.start(), proving the counter is already
+        incremented before the worker body runs.
         """
         args = argparse.Namespace()
         args.url = "http://localhost:4242"
@@ -260,16 +259,16 @@ class TestQueueAwareness(unittest.TestCase):
         b = batcher.Batcher(mock_sim, args)
 
         # Submit an Order 4 query. This fills its batch immediately and
-        # blocks the simulator for 5s
+        # blocks the simulator for 1.5s
         t_order4 = threading.Thread(target=lambda: b([[0.1]], {"order": "4"}))
         t_order4.start()
         time.sleep(0.1)
         t_order3_first = threading.Thread(target=lambda: b([[0.1]], {"order": "3"}))
         t_order3_first.start()
 
-        # We now wait 5.0 on the main thread
+        # We now wait 1.0s on the main thread
         # * OLD BEHAVIOR: The 0.5s timeout expires. The batch pads [0.1] to [[0.1], [0.1]] and submits
-        # * NEW_BEHAVIOR: The batch sees Order 4 is still computing, pauses the timeout, and waits.
+        # * NEW BEHAVIOR: The batch sees Order 4 is still computing, pauses the timeout, and waits.
         time.sleep(1.0)
 
         # Submit the second Order 3 query.
@@ -292,6 +291,57 @@ class TestQueueAwareness(unittest.TestCase):
             [[0.1], [0.2]],
             "Batcher padded prematurely due to"
             "timeout! It did not wait for the active Order 4 compute.",
+        )
+
+    def test_thread_start_failure_rollback(self):
+        """
+        Copilot review #7: If Thread() or start() raises
+        (e.g. thread exhaustion), active_computes must be
+        rolled back. Otherwise the counter stays positive
+        forever and every later partial batch hangs.
+        """
+        args = argparse.Namespace()
+        args.url = "http://localhost:4242"
+        args.model = "test_model"
+        args.batchsize = 1
+        args.batchsize2 = 1
+        args.port = 4242
+        args.timeout = 0.5
+
+        mock_sim = MagicMock()
+        mock_sim.supports_evaluate.return_value = True
+        mock_sim.side_effect = lambda params, config: (
+            [0.5] * len(params)
+        )
+        b = batcher.Batcher(mock_sim, args)
+
+        # Monkey-patch threading.Thread to raise on the first
+        # call, simulating thread exhaustion.
+        original_thread = threading.Thread
+        call_count = [0]
+
+        def failing_thread(*a, **kw):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                raise RuntimeError("Thread exhaustion!")
+            return original_thread(*a, **kw)
+
+        import unittest.mock as um
+        with um.patch("threading.Thread", side_effect=failing_thread):
+            # _compute should raise but rollback active_computes
+            batch = batcher.Batcher.Batch(
+                {"order": "3"}, mock_sim, args, b
+            )
+            batch.parameters = [[1.0]]
+            batch.real_param_count = 1
+            with self.assertRaises(RuntimeError):
+                batch._compute()
+
+        # active_computes must be back to 0
+        self.assertEqual(
+            b.active_computes, 0,
+            "active_computes was not rolled back after"
+            " thread creation failure!",
         )
 
 
