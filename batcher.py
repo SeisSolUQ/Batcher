@@ -116,8 +116,11 @@ class Batcher(umbridge.Model):
                                     # log the pause if we haven't already
                                     if not waiting_logged:
                                         msg = (
-                                            f"Batch {self.batch_id} (Order {self.order}) "
-                                            f"paused timeout. Waiting for {self.parent_batcher.active_computes} active job(s) to finish..."
+                                            f"Batch {self.batch_id}"
+                                            f" (Order {self.order})"
+                                            " paused timeout."
+                                            f" Waiting for {self.parent_batcher.active_computes}"
+                                            " active job(s) to finish..."
                                         )
                                         print(msg)
                                         logger.info(msg)
@@ -191,7 +194,11 @@ class Batcher(umbridge.Model):
             # Log batch submission with metadata and parameters
             logger = get_logger()
             logger.info(
-                f"Batch submitted: batch_id={self.batch_id}, config_order={self.order}, real_count={self.real_param_count}, total_count={len(self.parameters)}, parameters={self.parameters}"
+                f"Batch submitted: batch_id={self.batch_id},"
+                f" config_order={self.order},"
+                f" real_count={self.real_param_count},"
+                f" total_count={len(self.parameters)},"
+                f" parameters={self.parameters}"
             )
 
             # Increment global active computes
@@ -232,11 +239,18 @@ class Batcher(umbridge.Model):
                 output_len = len(self.output) if hasattr(
                     self.output, "__len__") else 1
                 logger.info(
-                    f"Output received: batch_id={self.batch_id}, config_order={self.order}, output_length={output_len}, parameters={self.parameters}, output={self.output}"
+                    f"Output received: batch_id={self.batch_id},"
+                    f" config_order={self.order},"
+                    f" output_length={output_len},"
+                    f" parameters={self.parameters},"
+                    f" output={self.output}"
                 )
             else:
                 logger.error(
-                    f"Output FAILED: batch_id={self.batch_id}, config_order={self.order}, parameters={self.parameters}, error={str(self.error)}"
+                    f"Output FAILED: batch_id={self.batch_id},"
+                    f" config_order={self.order},"
+                    f" parameters={self.parameters},"
+                    f" error={str(self.error)}"
                 )
 
             print(f"Output: {self.output}")
@@ -264,7 +278,10 @@ class Batcher(umbridge.Model):
         param_lengths = [len(p) if hasattr(p, "__len__")
                          else 1 for p in parameters]
         logger.info(
-            f"Request received: config_order={config_order}, num_parameters={len(parameters)}, parameter_lengths={param_lengths}, parameters={parameters}"
+            f"Request received: config_order={config_order},"
+            f" num_parameters={len(parameters)},"
+            f" parameter_lengths={param_lengths},"
+            f" parameters={parameters}"
         )
 
         assert (
