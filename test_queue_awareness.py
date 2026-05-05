@@ -7,6 +7,150 @@ import batcher
 
 
 class TestQueueAwareness(unittest.TestCase):
+    def test_race_condition_active_computes_increment(self):
+        """
+        Bug 1: active_computes is incremented inside
+        _compute_thread(), AFTER thread.start() returns. This
+        test widens that race window by monkey-patching
+        _compute_thread to sleep before the real body runs,
+        proving that another thread can observe
+        active_computes == 0 even though a compute was just
+        dispatched.
+        """
+        args = argparse.Namespace()
+        args.url = "http://localhost:4242"
+        args.model = "test_model"
+        args.batchsize = 1
+        args.batchsize2 = 1
+        args.port = 4242
+        args.timeout = 0.5
+
+        sim_blocked = threading.Event()
+        mock_sim = MagicMock()
+        mock_sim.supports_evaluate.return_value = True
+
+        def mock_compute(params, config):
+            sim_blocked.wait(timeout=5)
+            return [0.5] * len(params)
+
+        mock_sim.side_effect = mock_compute
+        b = batcher.Batcher(mock_sim, args)
+
+        # Track active_computes right after _compute() returns
+        # by hooking _compute to record the value immediately
+        # after thread.start().
+        observed_count = [None]
+        original_compute = (
+            batcher.Batcher.Batch._compute
+        )
+
+        def patched_compute(batch_self):
+            original_compute(batch_self)
+            # Read active_computes RIGHT AFTER _compute()
+            # returns (thread.start() just happened).
+            # If increment is in the thread, this is 0.
+            observed_count[0] = (
+                batch_self.parent_batcher.active_computes
+            )
+
+        batcher.Batcher.Batch._compute = patched_compute
+        try:
+            t = threading.Thread(
+                target=lambda: b(
+                    [[1.0]], {"order": "3"}
+                )
+            )
+            t.start()
+            time.sleep(0.5)
+
+            self.assertGreaterEqual(
+                observed_count[0],
+                1,
+                "active_computes was"
+                f" {observed_count[0]} right after"
+                " _compute() returned. The increment"
+                " is racing inside the worker thread.",
+            )
+        finally:
+            batcher.Batcher.Batch._compute = (
+                original_compute
+            )
+            sim_blocked.set()
+            t.join(timeout=5)
+
+    def test_batch_wakes_immediately_after_compute_finishes(
+        self,
+    ):
+        """
+        Bug 2: The batch polls on batchLock.wait(timeout) but
+        notify_all() fires on active_computes_condition. Nobody
+        listens on it, so the batch sits for an extra full
+        timeout cycle after computes finish.
+
+        Uses a long timeout (2.0s) so the extra polling delay
+        is clearly measurable. Order 4 finishes at ~1.5s.
+        With notify: batch pads at ~1.5s + 2.0s = ~3.5s
+        Without notify (bug): batch pads at ~1.5s + ~2*2.0s
+        = ~5.5s (extra cycle from polling miss).
+        """
+        ORDER4_SLEEP = 1.5
+        TIMEOUT = 2.0  # Long timeout to make delay obvious
+
+        args = argparse.Namespace()
+        args.url = "http://localhost:4242"
+        args.model = "test_model"
+        args.batchsize = 2
+        args.batchsize2 = 1
+        args.port = 4242
+        args.timeout = TIMEOUT
+
+        mock_sim = MagicMock()
+        mock_sim.supports_evaluate.return_value = True
+
+        def mock_compute(params, config):
+            if config["order"] == "4":
+                time.sleep(ORDER4_SLEEP)
+            return [0.5] * len(params)
+
+        mock_sim.side_effect = mock_compute
+        b = batcher.Batcher(mock_sim, args)
+
+        # Start Order 4 compute (blocks for ORDER4_SLEEP)
+        t_order4 = threading.Thread(
+            target=lambda: b([[0.1]], {"order": "4"})
+        )
+        t_order4.start()
+        time.sleep(0.1)
+
+        # Submit 1 Order 3 query (needs 2 to fill).
+        order3_start = time.time()
+        t_order3 = threading.Thread(
+            target=lambda: b([[0.1]], {"order": "3"})
+        )
+        t_order3.start()
+
+        t_order4.join(timeout=15)
+        t_order3.join(timeout=15)
+        order3_elapsed = time.time() - order3_start
+
+        # With proper notify: batch wakes at ~1.5s, gets
+        # fresh timeout of 2.0s, submits at ~3.5s.
+        # Total from order3_start: ~3.5s
+        # Without notify (bug): batch polls at 2.0s
+        # intervals. First poll at ~2.0s sees active > 0,
+        # resets. Second poll at ~4.0s sees active == 0,
+        # resets. Third poll at ~6.0s, submits.
+        # Total: ~6.0s
+        max_acceptable = ORDER4_SLEEP + 2.0 * TIMEOUT
+        self.assertLess(
+            order3_elapsed,
+            max_acceptable,
+            f"Order 3 batch took {order3_elapsed:.2f}s"
+            f" but should have completed within"
+            f" {max_acceptable:.2f}s. The batch is not"
+            " waking up when active computes finish.",
+        )
+
     def test_full_chain_starvation_scenario(self):
         """
         Simulates 8 parallel chains where 1 chain is delayed by an Order 4 simulation.

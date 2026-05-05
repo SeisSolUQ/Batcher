@@ -97,8 +97,42 @@ class Batcher(umbridge.Model):
         def is_computing(self):
             return self.thread is not None
 
+        def _wait_for_active_computes(self, logger, waiting_logged):
+            """Check if active computes are running and wait
+            for them to finish. Returns True if we should
+            continue the loop (i.e. we waited), along with
+            updated waiting_logged flag."""
+            with self.parent_batcher.active_computes_condition:
+                if self.parent_batcher.active_computes <= 0:
+                    return False, waiting_logged
+
+                if not waiting_logged:
+                    msg = (
+                        f"Batch {self.batch_id}"
+                        f" (Order {self.order})"
+                        " paused timeout."
+                        f" Waiting for {self.parent_batcher.active_computes}"
+                        " active job(s) to finish..."
+                    )
+                    print(msg)
+                    logger.info(msg)
+                    waiting_logged = True
+
+                # Release batchLock so other threads can add
+                # samples, then wait on the condition that
+                # gets notified when computes finish.
+                self.batchLock.release()
+                try:
+                    with self.parent_batcher.active_computes_condition:
+                        self.parent_batcher.active_computes_condition.wait(
+                            timeout=self.cli_args.timeout
+                        )
+                finally:
+                    self.batchLock.acquire()
+                self.last_input_time = time.time()
+                return True, waiting_logged
+
         def _wait_for_batch_and_submit(self):
-            # flag to ensure we only print the waiting message once per batch
             waiting_logged = False
             logger = get_logger()
 
@@ -111,23 +145,13 @@ class Batcher(umbridge.Model):
                     if self.is_full() or remaining_time <= 0:
                         # check global queue state before padding
                         if not self.is_full():
-                            with self.parent_batcher.active_computes_condition:
-                                if self.parent_batcher.active_computes > 0:
-                                    # log the pause if we haven't already
-                                    if not waiting_logged:
-                                        msg = (
-                                            f"Batch {self.batch_id}"
-                                            f" (Order {self.order})"
-                                            " paused timeout."
-                                            f" Waiting for {self.parent_batcher.active_computes}"
-                                            " active job(s) to finish..."
-                                        )
-                                        print(msg)
-                                        logger.info(msg)
-                                        waiting_logged = True
-
-                                    self.last_input_time = time.time()
-                                    continue
+                            should_wait, waiting_logged = (
+                                self._wait_for_active_computes(
+                                    logger, waiting_logged
+                                )
+                            )
+                            if should_wait:
+                                continue
 
                         # Store real count before padding
                         self.real_param_count = len(self.parameters)
@@ -186,9 +210,19 @@ class Batcher(umbridge.Model):
 
         def _compute(self):
             assert self.thread is None, "Already computing!"
-            self.thread = threading.Thread(target=self._compute_thread)
+            # Increment BEFORE starting thread to close the
+            # race window where another batch could see
+            # active_computes == 0 after dispatch.
+            with self.parent_batcher.active_computes_condition:
+                self.parent_batcher.active_computes += 1
+            self.thread = threading.Thread(
+                target=self._compute_thread
+            )
             self.thread.start()
-            print(f"Batch started for config: {self.order} at {time.ctime()}")
+            print(
+                f"Batch started for config: {self.order}"
+                f" at {time.ctime()}"
+            )
 
         def _compute_thread(self):
             # Log batch submission with metadata and parameters
@@ -200,10 +234,6 @@ class Batcher(umbridge.Model):
                 f" total_count={len(self.parameters)},"
                 f" parameters={self.parameters}"
             )
-
-            # Increment global active computes
-            with self.parent_batcher.active_computes_condition:
-                self.parent_batcher.active_computes += 1
 
             # Try this up to 3 times to avoid cluster issues
             last_exception = None
