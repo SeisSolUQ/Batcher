@@ -4,14 +4,14 @@ repos:
     rev: v2.3.2  # Let's use the absolute latest version!
     hooks:
       - id: autopep8
-        args: [--max-line-length=80, --in-place]
+        args: [--max-line-length=120, --in-place]
 
   # 2. Flake8 Linter
   - repo: https://github.com/PyCQA/flake8
     rev: 7.0.0
     hooks:
       - id: flake8
-        args: [--max-line-length=80, --max-complexity=10]
+        args: [--max-line-length=120, --max-complexity=10]
         additional_dependencies: [flake8-bugbear]
 
   # 3. Local Test Runner
